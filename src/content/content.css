@@ -1,0 +1,36 @@
+/* Content script styles injected into Gmail */
+/* Minimal CSS since the sidebar uses inline styles for isolation */
+
+#phishing-detector-sidebar {
+  all: initial;
+  font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Noto Sans KR', sans-serif;
+  z-index: 9999;
+}
+
+#phishing-detector-sidebar * {
+  box-sizing: border-box;
+}
+
+/* Smooth transitions for checklist items */
+#phishing-detector-sidebar .phishing-check-item:hover {
+  background: rgba(255, 255, 255, 0.06) !important;
+  transform: translateX(2px);
+}
+
+#phishing-detector-sidebar button:hover {
+  filter: brightness(1.1);
+}
+
+/* Custom scrollbar for sidebar */
+#phishing-detector-sidebar::-webkit-scrollbar {
+  width: 4px;
+}
+
+#phishing-detector-sidebar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#phishing-detector-sidebar::-webkit-scrollbar-thumb {
+  background: rgba(99, 102, 241, 0.3);
+  border-radius: 2px;
+}
