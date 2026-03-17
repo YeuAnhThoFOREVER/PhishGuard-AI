@@ -1,11 +1,30 @@
 // Gmail DOM parsing utilities for email data extraction
 
 /**
+ * Get the currently open email container to scope all queries
+ * This prevents picking up sender info from other emails in the list
+ */
+function getEmailContainer() {
+  // Try to find the active/open email message container
+  return (
+    document.querySelector('.adn.ads') ||       // open email thread
+    document.querySelector('.h7') ||             // email view wrapper
+    document.querySelector('[data-message-id]') || // message by ID
+    document.querySelector('.ii.gt') ||          // email body wrapper
+    null
+  );
+}
+
+/**
  * Extract sender email address from the currently open email
  */
 export function extractSenderAddress() {
-  // Gmail uses data-hovercard-id or the "from" span with email attribute
-  const senderEl = document.querySelector('span[email]');
+  // Scope the search to the currently open email container
+  const container = getEmailContainer();
+  const scope = container || document;
+
+  // Gmail uses span[email] for the sender
+  const senderEl = scope.querySelector('span[email]');
   if (senderEl) {
     return {
       email: senderEl.getAttribute('email'),
@@ -13,13 +32,25 @@ export function extractSenderAddress() {
     };
   }
 
-  // Fallback: look for the gD class (sender container)
-  const gdEl = document.querySelector('.gD');
+  // Fallback: look for the gD class (sender container) scoped to open email
+  const gdEl = scope.querySelector('.gD');
   if (gdEl) {
     return {
       email: gdEl.getAttribute('email') || '',
       name: gdEl.textContent.trim(),
     };
+  }
+
+  // Last resort: grab first span[email] but only if inside the email view area
+  const emailView = document.querySelector('.nH.nn') || document.querySelector('[role="main"]');
+  if (emailView) {
+    const fallbackEl = emailView.querySelector('span[email]');
+    if (fallbackEl) {
+      return {
+        email: fallbackEl.getAttribute('email'),
+        name: fallbackEl.textContent.trim(),
+      };
+    }
   }
 
   return { email: '', name: '' };

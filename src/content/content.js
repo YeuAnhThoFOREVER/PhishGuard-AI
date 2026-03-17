@@ -7,13 +7,29 @@ let currentEmailId = null;
 let sidebarContainer = null;
 let observer = null;
 let analysisInProgress = false;
+let lastAnalysisTime = 0;
+const ANALYSIS_COOLDOWN_MS = 30000; // Minimum 5 seconds between analyses
+
+/**
+ * Escape HTML special characters to prevent XSS.
+ * All dynamic content MUST pass through this before innerHTML insertion.
+ */
+function escapeHTML(str) {
+  if (str == null) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
 /**
  * Initialize the content script
  */
 function init() {
   console.log('[PhishingDetector] Content script loaded on Gmail');
-  
+
   // Wait for Gmail to fully load
   waitForGmail().then(() => {
     console.log('[PhishingDetector] Gmail detected, starting observer');
@@ -67,8 +83,18 @@ function startObserver() {
   let lastHash = window.location.hash;
   setInterval(() => {
     if (window.location.hash !== lastHash) {
+      const oldHash = lastHash;
       lastHash = window.location.hash;
-      currentEmailId = null;
+      // Only reset ID when navigating TO a new email thread
+      const isNewEmail = window.location.hash.includes('/') &&
+        !window.location.hash.includes('#inbox') &&
+        !window.location.hash.includes('#sent') &&
+        !window.location.hash.includes('#drafts') &&
+        !window.location.hash.includes('#all') &&
+        !window.location.hash.includes('#spam');
+      if (isNewEmail) {
+        currentEmailId = null;
+      }
       checkForEmailView();
     }
   }, 500);
@@ -87,7 +113,7 @@ function checkForEmailView() {
     if (sidebarContainer) {
       removeSidebar();
     }
-    currentEmailId = null;
+    // Don't reset currentEmailId here - prevents rescanning same email when returning
     return;
   }
 
@@ -95,9 +121,11 @@ function checkForEmailView() {
   const emailContent = emailBody.innerText.substring(0, 100);
   const emailId = simpleHash(emailContent);
 
-  // Only analyze if it's a new email
-  if (emailId !== currentEmailId && !analysisInProgress) {
+  // Only analyze if it's a new email, not already in progress, and cooldown elapsed
+  const now = Date.now();
+  if (emailId !== currentEmailId && !analysisInProgress && (now - lastAnalysisTime >= ANALYSIS_COOLDOWN_MS)) {
     currentEmailId = emailId;
+    lastAnalysisTime = now;
     analyzeCurrentEmail();
   }
 }
@@ -120,6 +148,12 @@ function simpleHash(str) {
  */
 async function analyzeCurrentEmail() {
   analysisInProgress = true;
+
+  // Safety timeout - force reset if stuck for more than 60 seconds
+  const safetyTimeout = setTimeout(() => {
+    analysisInProgress = false;
+    currentEmailId = null;
+  }, 60000);
 
   try {
     const emailData = extractEmailData();
@@ -154,6 +188,7 @@ async function analyzeCurrentEmail() {
     console.error('[PhishingDetector] Error analyzing email:', error);
     injectSidebar('error', { error: error.message }, null);
   } finally {
+    clearTimeout(safetyTimeout);
     analysisInProgress = false;
   }
 }
@@ -168,8 +203,8 @@ function injectSidebar(state, data, emailData) {
   sidebarContainer.id = 'phishing-detector-sidebar';
 
   // Find the email view container and inject sidebar
-  const emailContainer = document.querySelector('.nH.bkK') || 
-                          document.querySelector('[role="main"]');
+  const emailContainer = document.querySelector('.nH.bkK') ||
+    document.querySelector('[role="main"]');
 
   if (emailContainer) {
     emailContainer.style.position = 'relative';
@@ -247,7 +282,7 @@ function renderSidebar(state, data, emailData) {
             <div style="width: 28px; height: 28px; border-radius: 50%; background: rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: center; font-size: 13px; flex-shrink: 0; color: #606070;">②</div>
             <div style="flex: 1;">
               <div style="font-size: 13px; font-weight: 600; color: #808090;">🤖 AI 피싱 분석</div>
-              <div style="font-size: 11px; color: #606070; margin-top: 2px;">Gemini AI가 위험도를 평가합니다</div>
+              <div style="font-size: 11px; color: #606070; margin-top: 2px;">Claude AI가 위험도를 평가합니다</div>
             </div>
           </div>
 
@@ -263,7 +298,7 @@ function renderSidebar(state, data, emailData) {
         ${emailData?.sender?.email ? `
         <div style="margin-top: 16px; padding: 10px 12px; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid rgba(255,255,255,0.06);">
           <div style="font-size: 11px; color: #606070;">분석 대상</div>
-          <div style="font-size: 12px; color: #a0a0b0; margin-top: 2px;">📧 ${emailData.sender.email}</div>
+          <div style="font-size: 12px; color: #a0a0b0; margin-top: 2px;">📧 ${escapeHTML(emailData.sender.email)}</div>
         </div>` : ''}
 
         <style>
@@ -288,7 +323,7 @@ function renderSidebar(state, data, emailData) {
           </div>
         </div>
         <p style="font-size: 14px; color: #c0c0d0; line-height: 1.6;">
-          확장 프로그램 아이콘을 클릭하여<br>Google Gemini API 키를 입력해주세요.
+          확장 프로그램 아이콘을 클릭하여<br>Anthropic Claude API 키를 입력해주세요.
         </p>
         <div style="margin-top: 12px; padding: 12px; background: rgba(245, 158, 11, 0.1); border-radius: 8px; border: 1px solid rgba(245, 158, 11, 0.2);">
           <p style="font-size: 12px; color: #f59e0b; margin: 0;">💡 API 키는 기기에만 로컬로 저장되며 외부 서버로 전송되지 않습니다.</p>
@@ -306,7 +341,7 @@ function renderSidebar(state, data, emailData) {
             <div style="font-size: 12px; color: #a0a0b0;">이메일 분석 중 문제가 발생했습니다</div>
           </div>
         </div>
-        <p style="font-size: 13px; color: #f87171; margin: 8px 0;">${data?.error || '알 수 없는 오류'}</p>
+        <p style="font-size: 13px; color: #f87171; margin: 8px 0;">${escapeHTML(data?.error || '알 수 없는 오류')}</p>
         <button id="phishing-retry-btn" style="width: 100%; padding: 10px; background: linear-gradient(135deg, #6366f1, #8b5cf6); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 14px; margin-top: 8px;">다시 시도</button>
         <button id="phishing-close-btn" style="position: absolute; top: 12px; right: 12px; background: none; border: none; color: #808090; cursor: pointer; font-size: 18px; padding: 4px 8px;">✕</button>
       </div>
@@ -368,34 +403,36 @@ function buildResultHTML(baseStyle, data, emailData) {
     attachment: '📎',
   };
 
-  const checklistHTML = data.checklist.map((item, index) => `
+  const checklistHTML = data.checklist.map((item, index) => {
+    // Sanitize category to only allow known values
+    const safeCategory = ['sender', 'links', 'content', 'urgency', 'attachment'].includes(item.category) ? item.category : 'content';
+    const safeRisk = ['high', 'medium', 'low'].includes(item.riskContribution) ? item.riskContribution : 'low';
+    return `
     <div class="phishing-check-item" style="display: flex; gap: 12px; padding: 14px; background: rgba(255,255,255,0.03); border-radius: 12px; cursor: pointer; transition: all 0.2s; margin-bottom: 8px; border: 1px solid rgba(255,255,255,0.06);">
       <div class="phishing-checkbox" data-checked="false" style="font-size: 20px; color: #6366f1; flex-shrink: 0; margin-top: 2px;">☐</div>
       <div style="flex: 1;">
         <div style="font-size: 14px; color: #e0e0e0; font-weight: 500; line-height: 1.5;">
-          ${categoryIcons[item.category] || '🔍'} ${item.question}
+          ${categoryIcons[safeCategory] || '🔍'} ${escapeHTML(item.question)}
         </div>
-        <div style="font-size: 12px; color: #808090; margin-top: 6px; line-height: 1.4;">${item.explanation}</div>
+        <div style="font-size: 12px; color: #808090; margin-top: 6px; line-height: 1.4;">${escapeHTML(item.explanation)}</div>
         <div style="margin-top: 6px;">
-          <span style="font-size: 10px; padding: 2px 8px; border-radius: 4px; background: ${
-            item.riskContribution === 'high' ? 'rgba(239,68,68,0.15)' :
-            item.riskContribution === 'medium' ? 'rgba(245,158,11,0.15)' : 'rgba(34,197,94,0.15)'
-          }; color: ${
-            item.riskContribution === 'high' ? '#f87171' :
-            item.riskContribution === 'medium' ? '#fbbf24' : '#4ade80'
-          };">${
-            item.riskContribution === 'high' ? '높은 위험' :
-            item.riskContribution === 'medium' ? '보통 위험' : '낮은 위험'
-          }</span>
+          <span style="font-size: 10px; padding: 2px 8px; border-radius: 4px; background: ${safeRisk === 'high' ? 'rgba(239,68,68,0.15)' :
+        safeRisk === 'medium' ? 'rgba(245,158,11,0.15)' : 'rgba(34,197,94,0.15)'
+      }; color: ${safeRisk === 'high' ? '#f87171' :
+        safeRisk === 'medium' ? '#fbbf24' : '#4ade80'
+      };">${safeRisk === 'high' ? '높은 위험' :
+        safeRisk === 'medium' ? '보통 위험' : '낮은 위험'
+      }</span>
         </div>
       </div>
     </div>
-  `).join('');
+  `;
+  }).join('');
 
   const techniquesHTML = data.detectedTechniques.length > 0 ? `
     <div style="margin-top: 16px; padding: 14px; background: rgba(239, 68, 68, 0.08); border-radius: 12px; border: 1px solid rgba(239, 68, 68, 0.15);">
       <div style="font-size: 13px; font-weight: 600; color: #f87171; margin-bottom: 8px;">🚨 감지된 피싱 기법:</div>
-      ${data.detectedTechniques.map(t => `<div style="font-size: 12px; color: #fca5a5; padding: 2px 0;">• ${t}</div>`).join('')}
+      ${data.detectedTechniques.map(t => `<div style="font-size: 12px; color: #fca5a5; padding: 2px 0;">• ${escapeHTML(t)}</div>`).join('')}
     </div>
   ` : '';
 
@@ -414,11 +451,11 @@ function buildResultHTML(baseStyle, data, emailData) {
         <div style="display: flex; align-items: center; gap: 12px;">
           <div style="width: 48px; height: 48px; border-radius: 14px; background: rgba(255,255,255,0.2); display: flex; align-items: center; justify-content: center; font-size: 24px; backdrop-filter: blur(10px);">🛡️</div>
           <div>
-            <div style="font-weight: 800; font-size: 20px; color: white; text-shadow: 0 1px 2px rgba(0,0,0,0.2);">${risk.text}</div>
-            <div style="font-size: 12px; color: rgba(255,255,255,0.85);">위험도 점수: ${data.riskScore}/100</div>
+            <div style="font-weight: 800; font-size: 20px; color: white; text-shadow: 0 1px 2px rgba(0,0,0,0.2);">${escapeHTML(risk.text)}</div>
+            <div style="font-size: 12px; color: rgba(255,255,255,0.85);">위험도 점수: ${escapeHTML(String(data.riskScore))}/100</div>
           </div>
         </div>
-        <div style="margin-top: 12px; font-size: 13px; color: rgba(255,255,255,0.9); line-height: 1.5;">${data.summary}</div>
+        <div style="margin-top: 12px; font-size: 13px; color: rgba(255,255,255,0.9); line-height: 1.5;">${escapeHTML(data.summary)}</div>
       </div>
 
       <!-- Scrollbar styling -->
@@ -434,9 +471,9 @@ function buildResultHTML(baseStyle, data, emailData) {
         ${emailData?.sender?.email ? `
         <div style="margin-bottom: 16px; padding: 12px; background: rgba(255,255,255,0.04); border-radius: 10px; border: 1px solid rgba(255,255,255,0.06);">
           <div style="font-size: 11px; color: #808090; margin-bottom: 4px;">발신자</div>
-          <div style="font-size: 14px; color: #e0e0e0; font-weight: 500;">${emailData.sender.name}</div>
-          <div style="font-size: 12px; color: #a0a0b0;">${emailData.sender.email}</div>
-          ${data.senderAnalysis?.similarDomain ? `<div style="font-size: 12px; color: #f59e0b; margin-top: 4px;">⚠️ 유사 도메인: ${data.senderAnalysis.similarDomain}</div>` : ''}
+          <div style="font-size: 14px; color: #e0e0e0; font-weight: 500;">${escapeHTML(emailData.sender.name)}</div>
+          <div style="font-size: 12px; color: #a0a0b0;">${escapeHTML(emailData.sender.email)}</div>
+          ${data.senderAnalysis?.similarDomain ? `<div style="font-size: 12px; color: #f59e0b; margin-top: 4px;">⚠️ 유사 도메인: ${escapeHTML(data.senderAnalysis.similarDomain)}</div>` : ''}
         </div>
         ` : ''}
 
@@ -453,7 +490,7 @@ function buildResultHTML(baseStyle, data, emailData) {
         <!-- Recommendation -->
         <div style="margin-top: 16px; padding: 14px; background: rgba(99, 102, 241, 0.08); border-radius: 12px; border: 1px solid rgba(99, 102, 241, 0.15);">
           <div style="font-size: 13px; font-weight: 600; color: #a5b4fc; margin-bottom: 6px;">💡 권장 사항</div>
-          <div style="font-size: 13px; color: #c0c0d0; line-height: 1.5;">${data.recommendation}</div>
+          <div style="font-size: 13px; color: #c0c0d0; line-height: 1.5;">${escapeHTML(data.recommendation)}</div>
         </div>
 
         <!-- Footer -->
@@ -542,6 +579,11 @@ function animateProgress() {
   // Start the animation
   tick();
 }
+
+// Keep background service worker alive
+setInterval(() => {
+  chrome.runtime.sendMessage({ type: 'PING' }).catch(() => { });
+}, 20000);
 
 // Initialize when script loads
 init();

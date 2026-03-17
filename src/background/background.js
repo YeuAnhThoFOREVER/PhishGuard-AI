@@ -60,6 +60,14 @@ async function handleAnalyzeEmail(emailData) {
   }
 }
 
+// Keep service worker alive
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === "PING") {
+    sendResponse({ pong: true });
+    return true;
+  }
+});
+
 // Set extension icon badge when installed
 chrome.runtime.onInstalled.addListener(() => {
   console.log('[PhishingDetector] Extension installed successfully');

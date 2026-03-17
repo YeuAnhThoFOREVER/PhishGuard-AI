@@ -10,10 +10,10 @@ export default function Popup() {
 
   useEffect(() => {
     // Load saved settings
-    chrome.storage.local.get(['gemini_api_key', 'settings'], (result) => {
-      if (result.gemini_api_key) {
-        setSavedKey(result.gemini_api_key);
-        setApiKey(result.gemini_api_key);
+    chrome.storage.local.get(['anthropic_api_key', 'settings'], (result) => {
+      if (result.anthropic_api_key) {
+        setSavedKey(result.anthropic_api_key);
+        setApiKey(result.anthropic_api_key);
       }
       if (result.settings) {
         setEnabled(result.settings.enabled !== false);
@@ -31,14 +31,14 @@ export default function Popup() {
       showNotification('API 키를 입력해주세요.', 'error');
       return;
     }
-    if (!apiKey.startsWith('AIza')) {
-      showNotification('유효한 Google Gemini API 키를 입력해주세요. (AIza로 시작)', 'error');
+    if (!apiKey.startsWith('sk-ant-')) {
+      showNotification('유효한 Anthropic Claude API 키를 입력해주세요. (sk-ant-로 시작)', 'error');
       return;
     }
 
     setSaving(true);
     try {
-      await chrome.storage.local.set({ gemini_api_key: apiKey.trim() });
+      await chrome.storage.local.set({ anthropic_api_key: apiKey.trim() });
       setSavedKey(apiKey.trim());
       showNotification('API 키가 안전하게 저장되었습니다!');
     } catch (e) {
@@ -48,7 +48,7 @@ export default function Popup() {
   };
 
   const handleClear = async () => {
-    await chrome.storage.local.remove(['gemini_api_key']);
+    await chrome.storage.local.remove(['anthropic_api_key']);
     setApiKey('');
     setSavedKey('');
     showNotification('API 키가 삭제되었습니다.');
@@ -195,14 +195,14 @@ export default function Popup() {
           marginBottom: '12px',
         }}>
           <h3 style={{ fontSize: '14px', fontWeight: '700', color: '#e0e0f0', marginBottom: '12px' }}>
-            🔐 Google Gemini API 키
+            🔐 Anthropic Claude API 키
           </h3>
           <div style={{ position: 'relative' }}>
             <input
               type={showKey ? 'text' : 'password'}
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
-              placeholder="AIza..."
+              placeholder="sk-ant-..."
               style={{
                 width: '100%', padding: '12px 40px 12px 14px',
                 background: '#1a1a2e', border: '1px solid rgba(99, 102, 241, 0.2)',
@@ -291,7 +291,7 @@ export default function Popup() {
             </div>
             <div style={{ display: 'flex', gap: '8px', marginBottom: '6px' }}>
               <span>🤖</span>
-              <span>Google Gemini API를 통해 직접 분석합니다</span>
+              <span>Anthropic Claude API를 통해 직접 분석합니다</span>
             </div>
             <div style={{ display: 'flex', gap: '8px' }}>
               <span>📧</span>
@@ -318,7 +318,7 @@ export default function Popup() {
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 fontSize: '11px', fontWeight: '700', flexShrink: 0,
               }}>1</span>
-              <span>위에서 Google Gemini API 키를 입력하고 저장하세요</span>
+              <span>위에서 Anthropic Claude API 키를 입력하고 저장하세요</span>
             </div>
             <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', alignItems: 'flex-start' }}>
               <span style={{
